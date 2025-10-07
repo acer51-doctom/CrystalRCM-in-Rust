@@ -1,400 +1,314 @@
-// src/main.rs
-// Main application logic, Iced GUI implementation, and state management.
+// main.rs - The core of the GUI application.
+// It manages the application's state, handles UI rendering with egui,
+// and communicates with a background thread for non-blocking USB device detection.
 
-use iced::widget::{button, column, container, row, text, vertical_space};
-use iced::{
-    executor, Alignment, Application, Command, Element, Length, Settings, Subscription, Theme,
+use std::{
+    fs,
+    path::Path,
+    sync::mpsc::{self, Receiver, Sender, TryRecvError},
+    thread,
+    time::Duration,
 };
-use std::fs;
-use std::io::{self, Read};
-use std::path::{PathBuf};
-use std::time::Duration;
-use serde::{Deserialize, Serialize};
 
-// --- Module Declarations ---
-// These are necessary to link up with the constants and exploit logic.
-mod constants; 
-mod usb_exploits;
+use eframe::egui;
+use egui::{Color32, RichText, TextureHandle};
+use include_dir::{include_dir, Dir};
 
-use constants::FUSEE; // Import payload signature for checking
-use usb_exploit::{DeviceState, SwitchDevice};
+// Import the core payload launching logic from our rcm module.
+mod rcm;
 
-// --- Application State and Logic ---
+// Statically include the assets directory into the binary.
+// This makes distribution easier as we don't need to ship a separate assets folder.
+static ASSETS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/assets");
+const RECENT_FILES_PATH: &str = "recent_files.txt";
+const MAX_RECENT_FILES: usize = 5;
 
-// State of the application, used for serialization of recent files
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AppState {
-    pub recent_files: Vec<PathBuf>,
+// Enum to represent the different states of the connected Switch device.
+// NOTE: Removed `Copy` because rcm::Error does not implement it. `Clone` is sufficient.
+#[derive(Debug, PartialEq, Clone)]
+enum DeviceStatus {
+    Disconnected,
+    Rcm,
+    Normal,
+    Pushing,
+    Success,
+    Error(rcm::Error),
 }
 
-impl Default for AppState {
+// Messages sent from the background USB polling thread to the main GUI thread.
+enum UsbMessage {
+    StatusUpdate(DeviceStatus),
+}
+
+// Messages sent from the GUI thread to the payload pushing thread.
+enum PushMessage {
+    PushResult(DeviceStatus),
+}
+
+fn main() -> Result<(), eframe::Error> {
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([540.0, 140.0])
+            .with_resizable(false)
+            .with_title("CrystalRCM (Rust Edition)"),
+        ..Default::default()
+    };
+
+    eframe::run_native(
+        "CrystalRCM",
+        options,
+        Box::new(|_cc| Box::<CrystalRcmApp>::default()),
+    )
+}
+
+// The main struct holding our application's state.
+struct CrystalRcmApp {
+    selected_payload: String,
+    recent_payloads: Vec<String>,
+    log: Vec<String>,
+    device_status: DeviceStatus,
+    
+    // Communication channels
+    usb_rx: Receiver<UsbMessage>, // Receives status from USB poller
+    push_rx: Receiver<PushMessage>, // Receives result from payload pusher
+    push_tx: Option<Sender<PushMessage>>, // Stored to send to the pusher thread
+
+    // UI textures
+    s_waiting: Option<TextureHandle>,
+    s_ready: Option<TextureHandle>,
+    s_ams: Option<TextureHandle>,
+    s_hkt: Option<TextureHandle>,
+    s_reinx: Option<TextureHandle>,
+    s_bricc: Option<TextureHandle>,
+    s_lockpick: Option<TextureHandle>,
+    s_generic: Option<TextureHandle>,
+}
+
+impl Default for CrystalRcmApp {
     fn default() -> Self {
-        AppState {
-            recent_files: Vec::new(),
-        }
-    }
-}
+        let (usb_tx, usb_rx) = mpsc::channel();
+        let (push_tx, push_rx) = mpsc::channel();
 
-#[derive(Debug, Clone)]
-pub enum Message {
-    Loaded(Result<AppState, LoadError>),
-    FileSelected(PathBuf),
-    PayloadFileLoaded(Result<(Vec<u8>, PathBuf), String>), // Success: (data, path), Error: String
-    InjectPayload,
-    PollResult(DeviceState),
-    Log(String),
-    FatalError(String),
-}
-
-#[derive(Debug)]
-pub enum LoadError {
-    IoError(io::Error),
-    JsonError(serde_json::Error),
-}
-
-impl From<io::Error> for LoadError {
-    fn from(error: io::Error) -> Self {
-        LoadError::IoError(error)
-    }
-}
-
-impl From<serde_json::Error> for LoadError {
-    fn from(error: serde_json::Error) -> Self {
-        LoadError::JsonError(error)
-    }
-}
-
-pub struct CrystalRCM {
-    payload_path: String,
-    recent_files: Vec<PathBuf>,
-    log_output: String,
-    device_state: DeviceState,
-    is_loading: bool,
-    payload_data: Option<Vec<u8>>,
-}
-
-impl Application for CrystalRCM {
-    type Executor = executor::Default;
-    type Message = Message;
-    type Theme = Theme;
-    type Flags = ();
-
-    fn new(_flags: ()) -> (Self, Command<Message>) {
-        let initial_state = Self {
-            payload_path: String::new(),
-            recent_files: Vec::new(),
-            log_output: String::from("Waiting for device..."),
-            device_state: DeviceState::Disconnected,
-            is_loading: true,
-            payload_data: None,
-        };
-
-        // Command to load saved state and attempt to load a default payload
-        (
-            initial_state,
-            Command::batch(vec![
-                // Load recent files list from persistent storage
-                iced::storage::load(PathBuf::from("crystalrcm.json").into()), 
-                // Check if 'fusee.bin' exists in the current directory
-                Command::perform(Self::load_default_payload(), Message::FileSelected)
-            ]),
-        )
-    }
-
-    fn title(&self) -> String {
-        String::from("CrystalRCM Launcher")
-    }
-
-    fn update(&mut self, message: Message) -> Command<Message> {
-        match message {
-            Message::Loaded(Ok(state)) => {
-                self.recent_files = state.recent_files;
-                self.is_loading = false;
-                // Attempt to load the last used payload
-                if let Some(path) = self.recent_files.last().cloned() {
-                    self.payload_path = path.to_string_lossy().to_string();
-                    return Command::perform(Self::load_payload_file(path), |res| {
-                        Message::PayloadFileLoaded(res)
-                    });
-                }
-            }
-            Message::Loaded(Err(LoadError::IoError(err))) => {
-                // Ignore file not found (first run)
-                if err.kind() != io::ErrorKind::NotFound {
-                    self.log_output = format!("Warning: Could not load app state: {err}");
-                }
-                self.is_loading = false;
-            }
-            Message::Loaded(Err(LoadError::JsonError(err))) => {
-                self.log_output = format!("Warning: Could not parse app state: {err}");
-                self.is_loading = false;
-            }
-
-            Message::FileSelected(path) => {
-                // If the path is empty, the file selection was cancelled.
-                if path.as_os_str().is_empty() {
-                    return Command::none();
-                }
-
-                self.payload_path = path.to_string_lossy().to_string();
-                self.log_output = format!("Selected payload: {}", path.display());
+        // Start the background thread for polling USB devices.
+        thread::spawn(move || {
+            let mut last_status = DeviceStatus::Disconnected;
+            loop {
+                let current_status = match (rcm::find_rcm_device(), rcm::find_normal_device()) {
+                    (Ok(Some(_)), _) => DeviceStatus::Rcm,
+                    (Ok(None), Ok(Some(_))) => DeviceStatus::Normal,
+                    _ => DeviceStatus::Disconnected,
+                };
                 
-                // Update recent files list and save state
-                if !self.recent_files.contains(&path) {
-                    self.recent_files.push(path.clone());
-                    if self.recent_files.len() > 10 {
-                        self.recent_files.remove(0); // Keep list size manageable
-                    }
+                if current_status != last_status {
+                    usb_tx.send(UsbMessage::StatusUpdate(current_status)).unwrap();
+                    last_status = current_status;
                 }
-                
-                let state = AppState { recent_files: self.recent_files.clone() };
-                let save_command = iced::storage::store(PathBuf::from("crystalrcm.json").into(), state);
+                thread::sleep(Duration::from_millis(500));
+            }
+        });
 
-                return Command::batch(vec![
-                    save_command,
-                    Command::perform(Self::load_payload_file(path), |res| {
-                        Message::PayloadFileLoaded(res)
-                    })
-                ]);
-            }
-            
-            Message::PayloadFileLoaded(Ok((data, _path))) => {
-                self.payload_data = Some(data.clone());
-                // Simple check for known signature (fusee)
-                if data.len() >= 5 && data[..5] == FUSEE {
-                    self.log_output = format!("Payload loaded and recognized as 'fusee' ({} bytes).", data.len());
-                } else {
-                    self.log_output = format!("Payload file loaded successfully ({} bytes). Signature unknown.", data.len());
-                }
-            }
-            Message::PayloadFileLoaded(Err(e)) => {
-                self.payload_data = None;
-                self.log_output = format!("ERROR loading payload: {}", e);
-            }
+        let recent_payloads = load_recent_files();
 
-            Message::InjectPayload => {
-                if let Some(data) = self.payload_data.clone() {
-                    self.log_output = String::from("Attempting to inject payload... (Device will temporarily disappear)");
-                    // Run the blocking USB exploit logic in the background
-                    return Command::perform(Self::inject_rcm_payload(data), |res| match res {
-                        Ok(()) => Message::Log(String::from("SUCCESS: Payload injected! Check device screen.")),
-                        Err(e) => Message::FatalError(format!("INJECTION FAILED: {e}")),
-                    });
-                } else {
-                    self.log_output = String::from("ERROR: Cannot inject, no valid payload data loaded.");
-                }
-            }
-
-            Message::PollResult(new_state) => {
-                // Update log only if the state has changed
-                if self.device_state != new_state {
-                    match new_state {
-                        DeviceState::RcmMode => self.log_output = String::from("RCM device detected. Ready to push payload."),
-                        DeviceState::NormalMode => self.log_output = String::from("Normal Switch device detected. RCM not available."),
-                        DeviceState::Disconnected => self.log_output = String::from("Waiting for device..."),
-                    }
-                }
-                self.device_state = new_state;
-            }
-            
-            Message::Log(msg) => {
-                self.log_output = msg;
-            }
-            
-            Message::FatalError(msg) => {
-                self.log_output = msg;
-            }
+        Self {
+            selected_payload: recent_payloads.first().cloned().unwrap_or_default(),
+            recent_payloads,
+            log: vec!["Welcome to CrystalRCM!".to_string()],
+            device_status: DeviceStatus::Disconnected,
+            usb_rx,
+            push_rx,
+            push_tx: Some(push_tx),
+            s_waiting: None,
+            s_ready: None,
+            s_ams: None,
+            s_hkt: None,
+            s_reinx: None,
+            s_bricc: None,
+            s_lockpick: None,
+            s_generic: None,
         }
-        Command::none()
-    }
-
-    fn view(&self) -> Element<Message> {
-        // Status text styling based on device state
-        let state_text = match self.device_state {
-            DeviceState::RcmMode => text("RCM MODE DETECTED").style(iced::theme::text::Color::Success),
-            DeviceState::NormalMode => text("NORMAL MODE").style(iced::theme::text::Color::Danger),
-            DeviceState::Disconnected => text("DISCONNECTED").style(iced::theme::text::Color::Default),
-        };
-        
-        let select_file_btn = button("Select Payload (.bin)")
-            .on_press(Command::perform(Self::pick_file(), Message::FileSelected));
-            
-        // Enable inject button only if RCM mode is active AND payload data is loaded
-        let inject_enabled = self.device_state == DeviceState::RcmMode && self.payload_data.is_some();
-        let inject_btn = button("🚀 PUSH PAYLOAD")
-            .style(iced::theme::Button::Primary)
-            .width(Length::Fill)
-            .padding(10)
-            .on_press_maybe(if inject_enabled {
-                Some(Message::InjectPayload)
-            } else {
-                None
-            });
-
-        let content = column![
-            text("CrystalRCM Launcher").size(24).font(iced::Font::MONOSPACE).horizontal_alignment(iced::alignment::Horizontal::Center),
-            vertical_space(Length::Units(10)),
-            
-            // Status and Path Row
-            row![
-                state_text.size(18),
-                text(" | Path: ").size(18),
-                text(&self.payload_path).size(18),
-            ].spacing(10).align_items(Alignment::Center),
-
-            vertical_space(Length::Units(15)),
-
-            // File Selection and Push Button Row
-            row![
-                select_file_btn,
-                inject_btn,
-            ].spacing(10).align_items(Alignment::Center).width(Length::Fill),
-
-            vertical_space(Length::Units(10)),
-
-            // Log Output Area
-            text("DEBUG OUTPUT:").size(14),
-            container(
-                text(&self.log_output)
-                    .font(iced::Font::MONOSPACE)
-                    .size(14)
-            )
-            .padding(10)
-            .width(Length::Fill)
-            .height(Length::Units(80))
-            .style(iced::theme::Container::Box),
-        ]
-        .spacing(10)
-        .padding(20)
-        .align_items(Alignment::Center);
-
-        container(content)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .center_x()
-            .center_y()
-            .into()
-    }
-
-    fn subscription(&self) -> Subscription<Message> {
-        // Continuous device polling subscription
-        if !self.is_loading {
-            return Subscription::batch(vec![
-                Subscription::from_recipe(DevicePolling),
-            ]);
-        }
-        Subscription::none()
     }
 }
 
-// --- Background Task Recipes ---
+impl eframe::App for CrystalRcmApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Load textures on the first frame
+        self.load_textures_once(ctx);
 
-// Recipe for continuous device polling (replaces threading loop)
-// This is an Iced pattern to run background work at fixed intervals.
-pub struct DevicePolling;
+        // Check for messages from the background threads
+        self.handle_usb_messages();
+        self.handle_push_messages();
 
-impl<H: iced::Hasher> iced::advanced::Subscription<H, Message> for DevicePolling {
-    fn hash(&self, state: &mut H) {
-        use std::hash::Hash;
-        "device_polling".hash(state);
-    }
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                // --- Left Panel: Status Image ---
+                let texture = match self.device_status {
+                    DeviceStatus::Disconnected | DeviceStatus::Normal | DeviceStatus::Pushing => self.s_waiting.as_ref().unwrap(),
+                    DeviceStatus::Rcm => self.s_ready.as_ref().unwrap(),
+                    DeviceStatus::Success => self.s_generic.as_ref().unwrap(), // Simplified for now
+                    DeviceStatus::Error(_) => self.s_waiting.as_ref().unwrap(), // Maybe an error icon later
+                };
+                ui.image((texture.id(), texture.size_vec2() * 0.75));
 
-    fn stream(
-        self: Box<Self>,
-        _input: iced::advanced::futures::BoxStream<iced::advanced::Event>,
-    ) -> iced::advanced::futures::BoxStream<Message> {
-        // Use an async stream that polls every 500ms
-        Box::pin(async_std::stream::unfold(
-            (),
-            |_| async {
-                tokio::time::sleep(Duration::from_millis(500)).await;
-                
-                // Call the blocking poll logic defined in the usb_exploit module
-                let state = usb_exploit::SwitchDevice::poll_devices();
-                Some((Message::PollResult(state), ()))
-            },
-        ))
-    }
-}
-
-impl CrystalRCM {
-    /// Asynchronously opens a native file dialog.
-    async fn pick_file() -> PathBuf {
-        rfd::FileDialog::new()
-            .set_title("Select Payload File (.bin)")
-            .add_filter("Payloads", &["bin"])
-            .pick_file()
-            .unwrap_or_default()
-    }
-    
-    /// Checks for a default payload file (`fusee.bin`) next to the executable.
-    async fn load_default_payload() -> PathBuf {
-        let default_path = PathBuf::from("fusee.bin");
-        if default_path.exists() {
-            default_path
-        } else {
-            PathBuf::new()
-        }
-    }
-
-    /// Asynchronously loads payload data from a file, executing blocking I/O on a thread.
-    async fn load_payload_file(path: PathBuf) -> Result<(Vec<u8>, PathBuf), String> {
-        let path_clone = path.clone();
-        tokio::task::spawn_blocking(move || {
-            match fs::File::open(&path_clone) {
-                Ok(mut file) => {
-                    let mut data = Vec::new();
-                    match file.read_to_end(&mut data) {
-                        Ok(_) => Ok((data, path_clone)),
-                        Err(e) => Err(format!("Failed to read payload file: {e}")),
-                    }
-                }
-                Err(e) => Err(format!("Failed to open payload file: {e}")),
-            }
-        }).await.unwrap_or_else(|e| Err(format!("Payload loading task failed: {e}")))
-    }
-    
-    /// Executes the exploit by initializing the USB context and calling the injection logic.
-    async fn inject_rcm_payload(payload_data: Vec<u8>) -> Result<(), String> {
-        // Execute blocking USB operations in a separate blocking thread
-        tokio::task::spawn_blocking(move || {
-            // Re-initialize USB context for thread safety
-            match rusb::Context::new() {
-                Ok(ctx) => {
-                    let devices = ctx.devices().map_err(|e| format!("USB enumeration error: {e}"))?;
-                    
-                    // Find the RCM device again
-                    let device = devices.iter()
-                        .filter_map(|d| d.device_descriptor().ok().map(|desc| (d, desc)))
-                        .find(|(_, desc)| desc.vendor_id() == constants::RCM_VID && desc.product_id() == constants::RCM_PID)
-                        .map(|(d, _)| d)
-                        .ok_or_else(|| String::from("RCM device lost during injection attempt."))?;
-
-                    let mut switch = SwitchDevice::new(device).map_err(|e| format!("Failed to open RCM device: {e}"))?;
-                    
-                    // The core exploit injection from usb_exploit module
-                    switch.inject_payload(payload_data)
-                        .map_err(|e| format!("Exploit injection failed: {e}"))?;
+                // --- Right Panel: Controls and Log ---
+                ui.vertical(|ui| {
+                    // Top row: Payload selection and buttons
+                    ui.horizontal(|ui| {
+                        // NOTE: Prefixed with `_` to silence unused variable warning.
+                        let _combo_box = egui::ComboBox::from_id_source("payload_select")
+                            .selected_text(Path::new(&self.selected_payload).file_name().unwrap_or_default().to_string_lossy())
+                            .show_ui(ui, |ui| {
+                                for path in &self.recent_payloads {
+                                    if ui.selectable_value(&mut self.selected_payload, path.clone(), Path::new(path).file_name().unwrap_or_default().to_string_lossy()).clicked() {
+                                        self.log.push(format!("Selected payload: {}", path));
+                                    }
+                                }
+                            });
                         
-                    Ok(())
-                }
-                Err(e) => Err(format!("Failed to initialize RUSB context: {e}")),
-            }
-        }).await.unwrap_or_else(|e| Err(format!("Injection task failed: {e}")))
+                        if ui.button("Payload...").clicked() {
+                            self.open_payload_dialog();
+                        }
+
+                        let push_button_enabled = self.device_status == DeviceStatus::Rcm;
+                        let push_button = ui.add_enabled(push_button_enabled, egui::Button::new("Push!"));
+                        
+                        if push_button.clicked() {
+                            self.push_payload();
+                        }
+                    });
+
+                    // Bottom row: Log output
+                    ui.add_space(8.0);
+                    egui::ScrollArea::vertical().stick_to_bottom(true).show(ui, |ui| {
+                        ui.add(
+                            egui::TextEdit::multiline(&mut self.log.join("\n"))
+                                .desired_width(f32::INFINITY)
+                                .desired_rows(4)
+                                .interactive(false)
+                        );
+                    });
+                });
+            });
+        });
+        
+        ctx.request_repaint_after(Duration::from_millis(100));
     }
 }
 
-// --- Main Execution ---
+impl CrystalRcmApp {
+    /// Opens a file dialog to select a payload and updates the state.
+    fn open_payload_dialog(&mut self) {
+        if let Some(path) = rfd::FileDialog::new().add_filter("Binary payload", &["bin"]).pick_file() {
+            let path_str = path.to_string_lossy().to_string();
+            self.log.push(format!("Set payload: {}", &path_str));
+            self.selected_payload = path_str.clone();
+            self.update_recent_files(path_str);
+        }
+    }
 
-pub fn main() -> iced::Result {
-    // Set up window settings typical for a small, utility-focused application
-    CrystalRCM::run(Settings {
-        window: iced::window::Settings {
-            size: (540, 300),
-            resizable: false,
-            ..iced::window::Settings::default()
-        },
-        antialiasing: true,
-        ..Settings::default()
-    })
+    /// Spawns a new thread to push the selected payload.
+    fn push_payload(&mut self) {
+        if !Path::new(&self.selected_payload).exists() {
+            self.log.push("Error: Selected payload file does not exist.".to_string());
+            return;
+        }
+
+        self.device_status = DeviceStatus::Pushing;
+        self.log.push("Pushing payload...".to_string());
+
+        let payload_path = self.selected_payload.clone();
+        let tx = self.push_tx.clone().unwrap(); // We always have a sender
+
+        thread::spawn(move || {
+            let result = match rcm::push_payload(&payload_path) {
+                Ok(_) => DeviceStatus::Success,
+                Err(e) => DeviceStatus::Error(e),
+            };
+            tx.send(PushMessage::PushResult(result)).unwrap();
+        });
+    }
+    
+    /// Handles incoming messages from the USB polling thread.
+    fn handle_usb_messages(&mut self) {
+        match self.usb_rx.try_recv() {
+            Ok(UsbMessage::StatusUpdate(new_status)) => {
+                // Don't override status if we're in the middle of a push
+                if self.device_status != DeviceStatus::Pushing {
+                    if new_status != self.device_status {
+                        match new_status {
+                            DeviceStatus::Rcm => self.log.push("RCM device connected!".to_string()),
+                            DeviceStatus::Normal => self.log.push("Normal Switch connected. Please reboot to RCM.".to_string()),
+                            DeviceStatus::Disconnected => self.log.push("Device disconnected.".to_string()),
+                            _ => {}
+                        }
+                    }
+                    self.device_status = new_status;
+                }
+            }
+            Err(TryRecvError::Empty) => {} // No message, do nothing
+            Err(TryRecvError::Disconnected) => panic!("USB Polling thread disconnected!"),
+        }
+    }
+
+    /// Handles incoming messages from the payload push thread.
+    fn handle_push_messages(&mut self) {
+         match self.push_rx.try_recv() {
+            Ok(PushMessage::PushResult(result)) => {
+                self.device_status = result.clone();
+                // NOTE: Pushing plain strings to the log, not RichText objects.
+                 match result {
+                    DeviceStatus::Success => self.log.push("Launch complete!".to_string()),
+                    DeviceStatus::Error(e) => self.log.push(format!("Error: {}", e)),
+                    _ => {}
+                }
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => panic!("Push thread disconnected! This should not happen."),
+        }
+    }
+
+    /// Updates the list of recent files and saves it.
+    fn update_recent_files(&mut self, new_path: String) {
+        self.recent_payloads.retain(|p| *p != new_path);
+        self.recent_payloads.insert(0, new_path);
+        self.recent_payloads.truncate(MAX_RECENT_FILES);
+        save_recent_files(&self.recent_payloads);
+    }
+    
+    /// Helper to load all UI textures, but only once.
+    fn load_textures_once(&mut self, ctx: &egui::Context) {
+        if self.s_waiting.is_some() { return; }
+
+        let load = |name: &str| -> TextureHandle {
+            let file = ASSETS_DIR.get_file(name).unwrap();
+            let image = image::load_from_memory(file.contents()).unwrap();
+            let size = [image.width() as _, image.height() as _];
+            let image_buffer = image.to_rgba8();
+            let pixels = image_buffer.as_flat_samples();
+            let color_image = egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice());
+            ctx.load_texture(name, color_image, Default::default())
+        };
+
+        self.s_waiting = Some(load("s_waiting.png"));
+        self.s_ready = Some(load("s_ready.png"));
+        self.s_ams = Some(load("s_ams.png"));
+        self.s_hkt = Some(load("s_hkt.png"));
+        self.s_reinx = Some(load("s_reinx.png"));
+        self.s_bricc = Some(load("s_bricc.png"));
+        self.s_lockpick = Some(load("s_lockpick.png"));
+        self.s_generic = Some(load("s_generic.png"));
+    }
 }
+
+// --- File I/O for Recent Payloads ---
+
+fn load_recent_files() -> Vec<String> {
+    fs::read_to_string(RECENT_FILES_PATH)
+        .map(|content| content.lines().map(String::from).collect())
+        .unwrap_or_else(|_| Vec::new())
+}
+
+fn save_recent_files(files: &[String]) {
+    let content = files.join("\n");
+    let _ = fs::write(RECENT_FILES_PATH, content);
+}
+

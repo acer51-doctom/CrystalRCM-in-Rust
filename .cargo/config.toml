@@ -1,0 +1,11 @@
+# This file provides target-specific flags to the Rust compiler.
+# We need to tell the linker to include the native macOS frameworks
+# that the statically-compiled libusb depends on.
+
+# For Intel-based Macs
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-args=-framework IOKit -framework CoreFoundation"]
+
+# For Apple Silicon Macs (M1/M2/M3)
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-args=-framework IOKit -framework CoreFoundation"]
