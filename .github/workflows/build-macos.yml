@@ -2,9 +2,9 @@ name: macOS Universal Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ rust_rewrite ]
   pull_request:
-    branches: [ main ]
+    branches: [ rust_rewrite ]
   workflow_dispatch:
 
 env:
