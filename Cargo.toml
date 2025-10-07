@@ -6,7 +6,7 @@ description = "A fusée gelée RCM payload injector for macOS, built with Rust a
 
 [dependencies]
 # GUI framework
-iced = { version = "0.12", features = ["tokio", "async-std", "storage"] }
+iced = { version = "0.12", features = ["tokio", "async-std"] }
 # Asynchronous runtime
 tokio = { version = "1", features = ["full"] }
 # USB communication (libusb wrapper)
