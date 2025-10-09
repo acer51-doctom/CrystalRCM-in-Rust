@@ -6,7 +6,7 @@ description = "A fusée gelée RCM payload injector for macOS, rebuilt with Rust
 
 [dependencies]
 # USB communication
-rusb = "0.11"
+rusb = "0.9.4"
 
 # GUI
 egui = "0.27"

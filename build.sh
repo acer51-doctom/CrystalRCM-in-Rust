@@ -10,6 +10,7 @@ RESOURCES_DIR="${BUNDLE_PATH}/Contents/Resources"
 FRAMEWORKS_DIR="${BUNDLE_PATH}/Contents/Frameworks"
 
 echo "🚀 Building Rust binary for $(rustc --version)..."
+cargo update
 cargo clean
 clear
 cargo build --release
