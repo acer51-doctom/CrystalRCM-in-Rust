@@ -8,8 +8,8 @@ description = "A fusée gelée RCM payload injector for macOS, built with Rust a
 
 [dependencies]
 # The core dependency for native USB communication.
-# The "vendored" feature tells Cargo to compile libusb from source and link it statically.
-rusb = { version = "0.9", features = ["vendored"] }
+# We are no longer using the "vendored" feature.
+rusb = "0.9"
 
 # A modern, lightweight, and easy-to-use GUI library.
 egui = "0.27"
@@ -29,6 +29,4 @@ include_dir = "0.7"
 [build-dependencies]
 # This dependency is for the build script, used here to set up the macOS app bundle.
 embed-resource = "2.4"
-# pkg-config is needed by the build process when vendoring libusb.
-pkg-config = "0.3"
 

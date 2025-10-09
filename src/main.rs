@@ -11,7 +11,8 @@ use std::{
 };
 
 use eframe::egui;
-use egui::{Color32, RichText, TextureHandle};
+// NOTE: Removed unused imports for Color32 and RichText.
+use egui::TextureHandle;
 use include_dir::{include_dir, Dir};
 
 // Import the core payload launching logic from our rcm module.
@@ -100,7 +101,9 @@ impl Default for CrystalRcmApp {
                 };
                 
                 if current_status != last_status {
-                    usb_tx.send(UsbMessage::StatusUpdate(current_status)).unwrap();
+                    // NOTE: The value is cloned here before being moved into the send function.
+                    // This leaves the original `current_status` available to be used afterwards.
+                    usb_tx.send(UsbMessage::StatusUpdate(current_status.clone())).unwrap();
                     last_status = current_status;
                 }
                 thread::sleep(Duration::from_millis(500));

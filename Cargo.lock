@@ -1052,7 +1052,6 @@ dependencies = [
  "embed-resource",
  "image 0.25.8",
  "include_dir",
- "pkg-config",
  "rfd",
  "rusb",
 ]
