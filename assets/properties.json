@@ -1,0 +1,7 @@
+{
+  "app_name": "CrystalRCM in Rust",
+  "version": "0.1.0",
+  "description": "A fusée gelée RCM payload injector for macOS, rebuilt with Rust and egui.",
+  "repository": "https://github.com/acer51-doctom/CrystalRCM-in-Rust",
+  "author": "acer51-doctom"
+}

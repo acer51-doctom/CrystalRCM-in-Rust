@@ -1,0 +1,100 @@
+name: macOS Build (Universal)
+
+on:
+  push:
+    branches: [rust_rewrite]
+  pull_request:
+    branches: [rust_rewrite]
+  workflow_dispatch:
+
+env:
+  APP_NAME: CrystalRCM
+
+jobs:
+  build_x86_64:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          targets: x86_64-apple-darwin
+
+      - name: Install libusb
+        run: brew install libusb
+
+      - name: Build x86_64 .app
+        run: ./build.sh
+
+      - name: Upload x86_64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: x86_64_app
+          path: target/release/${APP_NAME}.app
+
+  build_aarch64:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          targets: aarch64-apple-darwin
+
+      - name: Install libusb
+        run: brew install libusb
+
+      - name: Build aarch64 .app
+        run: ./build.sh
+
+      - name: Upload aarch64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aarch64_app
+          path: target/release/${APP_NAME}.app
+
+  universal_bundle:
+    runs-on: macos-latest
+    needs: [build_x86_64, build_aarch64]
+    steps:
+      - name: Download x86_64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: x86_64_app
+          path: x86_64_app
+
+      - name: Download aarch64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: aarch64_app
+          path: aarch64_app
+
+      - name: Create universal binary
+        run: |
+          UNIVERSAL_DIR=target/universal
+          mkdir -p $UNIVERSAL_DIR/Contents/MacOS
+          lipo -create \
+            x86_64_app/${APP_NAME}.app/Contents/MacOS/${APP_NAME} \
+            aarch64_app/${APP_NAME}.app/Contents/MacOS/${APP_NAME} \
+            -output $UNIVERSAL_DIR/Contents/MacOS/${APP_NAME}
+
+      - name: Copy resources and frameworks
+        run: |
+          cp -R x86_64_app/${APP_NAME}.app/Contents/Resources $UNIVERSAL_DIR/Contents/
+          cp -R x86_64_app/${APP_NAME}.app/Contents/Frameworks $UNIVERSAL_DIR/Contents/
+          cp x86_64_app/${APP_NAME}.app/Contents/Info.plist $UNIVERSAL_DIR/Contents/
+
+      - name: Archive universal .app
+        run: |
+          cd target/universal
+          zip -r ${APP_NAME}_universal.zip ${APP_NAME}
+
+      - name: Upload universal artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${APP_NAME}_macOS_Universal
+          path: target/universal/${APP_NAME}_universal.zip

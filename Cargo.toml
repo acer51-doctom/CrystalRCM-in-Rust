@@ -2,31 +2,42 @@
 name = "crystalrcm-in-rust"
 version = "0.1.0"
 edition = "2021"
-description = "A fusée gelée RCM payload injector for macOS, built with Rust and Iced."
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "A fusée gelée RCM payload injector for macOS, rebuilt with Rust and egui."
 
 [dependencies]
-# The core dependency for native USB communication.
-# We are no longer using the "vendored" feature.
-rusb = "0.9"
+# USB communication
+rusb = "0.11"
 
-# A modern, lightweight, and easy-to-use GUI library.
+# GUI
 egui = "0.27"
-
-# The official backend/runner for egui applications.
 eframe = { version = "0.27", features = ["persistence"] }
 
-# A simple, cross-platform library for native file dialogs.
+# File dialogs
 rfd = "0.14"
 
-# Used for loading and handling image data for the UI.
+# Image loading
 image = { version = "0.25", features = ["png"] }
 
-# Provides a simple way to embed file bytes directly into the binary at compile time.
+# Embedding assets
 include_dir = "0.7"
 
-[build-dependencies]
-# This dependency is for the build script, used here to set up the macOS app bundle.
-embed-resource = "2.4"
+# HTTP requests for auto-updater
+reqwest = { version = "0.11", features = ["blocking", "json", "gzip"] }
 
+# Serialization / configuration
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.7"
+
+# GitHub auto-update
+self_update = "0.37"
+
+# Logging (optional, useful for debugging)
+log = "0.4"
+env_logger = "0.10"
+
+# async updater
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[build-dependencies]
+# macOS resource compiler for icons and .app bundling
+embed-resource = "2.4"
