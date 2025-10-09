@@ -1121,11 +1121,13 @@ dependencies = [
  "image 0.25.8",
  "include_dir",
  "log",
+ "regex",
  "reqwest",
  "rfd",
  "rusb",
  "self_update",
  "serde",
+ "serde_json",
  "tokio",
  "toml 0.7.8",
 ]
