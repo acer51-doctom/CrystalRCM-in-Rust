@@ -1,4 +1,4 @@
-[blah blah blah](./banner.png)
+![blah blah blah](./banner.png)
 
 Welcome to CrystalRCM, rewritten in Rust for faster speeds and more stability if the original one doesn't work!
 
