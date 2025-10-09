@@ -8,7 +8,9 @@ on:
   workflow_dispatch:
 
 env:
-  APP_NAME: CrystalRCM
+  APP_NAME: CrystalRCM in Rust
+  TERM: xterm-256color
+
 
 jobs:
   build_x86_64:
