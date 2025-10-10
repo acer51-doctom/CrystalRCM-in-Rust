@@ -10,6 +10,7 @@ on:
 env:
   APP_NAME: crystalrcm-rust-edition # MUST match build.sh exactly
   TERM: xterm-256color
+  UNIVERSAL_DIR: target/universal
 
 jobs:
   build_x86_64:
