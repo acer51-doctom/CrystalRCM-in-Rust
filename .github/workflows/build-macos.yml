@@ -102,9 +102,10 @@ jobs:
           UNIVERSAL_DIR=target/universal
           mkdir -p $UNIVERSAL_DIR/Contents/MacOS
           lipo -create \
-            x86_64_app/${{ env.APP_NAME }}.app/Contents/MacOS/${{ env.APP_NAME }} \
-            aarch64_app/${{ env.APP_NAME }}.app/Contents/MacOS/${{ env.APP_NAME }} \
+            x86_64_app/Contents/MacOS/${{ env.APP_NAME }} \
+            aarch64_app/Contents/MacOS/${{ env.APP_NAME }} \
             -output $UNIVERSAL_DIR/Contents/MacOS/${{ env.APP_NAME }}
+
 
       - name: Copy resources and frameworks
         run: |
