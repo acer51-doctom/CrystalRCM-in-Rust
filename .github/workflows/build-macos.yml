@@ -8,9 +8,8 @@ on:
   workflow_dispatch:
 
 env:
-  APP_NAME: CrystalRCM in Rust
+  APP_NAME: crystalrcm-rust-edition # MUST match build.sh exactly
   TERM: xterm-256color
-
 
 jobs:
   build_x86_64:
@@ -30,12 +29,11 @@ jobs:
       - name: Build app bundle (x86_64)
         run: bash ./build.sh
 
-
       - name: Upload x86_64 artifact
         uses: actions/upload-artifact@v4
         with:
           name: x86_64_app
-          path: target/release/${APP_NAME}.app
+          path: target/release/${{ env.APP_NAME }}.app
 
   build_aarch64:
     runs-on: macos-latest
@@ -58,7 +56,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: aarch64_app
-          path: target/release/${APP_NAME}.app
+          path: target/release/${{ env.APP_NAME }}.app
 
   universal_bundle:
     runs-on: macos-latest
@@ -81,23 +79,23 @@ jobs:
           UNIVERSAL_DIR=target/universal
           mkdir -p $UNIVERSAL_DIR/Contents/MacOS
           lipo -create \
-            x86_64_app/${APP_NAME}.app/Contents/MacOS/${APP_NAME} \
-            aarch64_app/${APP_NAME}.app/Contents/MacOS/${APP_NAME} \
-            -output $UNIVERSAL_DIR/Contents/MacOS/${APP_NAME}
+            x86_64_app/${{ env.APP_NAME }}.app/Contents/MacOS/${{ env.APP_NAME }} \
+            aarch64_app/${{ env.APP_NAME }}.app/Contents/MacOS/${{ env.APP_NAME }} \
+            -output $UNIVERSAL_DIR/Contents/MacOS/${{ env.APP_NAME }}
 
       - name: Copy resources and frameworks
         run: |
-          cp -R x86_64_app/${APP_NAME}.app/Contents/Resources $UNIVERSAL_DIR/Contents/
-          cp -R x86_64_app/${APP_NAME}.app/Contents/Frameworks $UNIVERSAL_DIR/Contents/
-          cp x86_64_app/${APP_NAME}.app/Contents/Info.plist $UNIVERSAL_DIR/Contents/
+          cp -R x86_64_app/${{ env.APP_NAME }}.app/Contents/Resources $UNIVERSAL_DIR/Contents/
+          cp -R x86_64_app/${{ env.APP_NAME }}.app/Contents/Frameworks $UNIVERSAL_DIR/Contents/
+          cp x86_64_app/${{ env.APP_NAME }}.app/Contents/Info.plist $UNIVERSAL_DIR/Contents/
 
       - name: Archive universal .app
         run: |
           cd target/universal
-          zip -r ${APP_NAME}_universal.zip ${APP_NAME}
+          zip -r ${{ env.APP_NAME }}_universal.zip ${{ env.APP_NAME }}
 
       - name: Upload universal artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${APP_NAME}_macOS_Universal
-          path: target/universal/${APP_NAME}_universal.zip
+          name: ${{ env.APP_NAME }}_macOS_Universal
+          path: target/universal/${{ env.APP_NAME }}_universal.zip
