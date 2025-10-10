@@ -12,10 +12,11 @@ MACOS_DIR="${BUNDLE_PATH}/Contents/MacOS"
 RESOURCES_DIR="${BUNDLE_PATH}/Contents/Resources"
 FRAMEWORKS_DIR="${BUNDLE_PATH}/Contents/Frameworks"
 
-echo "🚀 Building Rust binary for $(rustc --version)..."
+echo "🚀 Building Rust binaries for $(rustc --version)..."
 cargo update
 cargo clean
 clear
+echo "Initiating building process! 3... 2... 1... GO!"
 cargo build --release
 
 # --- Create .app bundle ---
