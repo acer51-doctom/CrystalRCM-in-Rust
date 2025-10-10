@@ -100,24 +100,24 @@ jobs:
 
       - name: Create universal binary
         run: |
-          UNIVERSAL_DIR=target/universal
+          UNIVERSAL_DIR=target/universal/${{ env.APP_NAME }}.app
           mkdir -p $UNIVERSAL_DIR/Contents/MacOS
           lipo -create \
                x86_64_app/Contents/MacOS/${{ env.APP_NAME }} \
                aarch64_app/Contents/MacOS/${{ env.APP_NAME }} \
                -output $UNIVERSAL_DIR/Contents/MacOS/${{ env.APP_NAME }}
 
-
       - name: Copy resources and frameworks
         run: |
-          cp -R x86_64_app/${{ env.APP_NAME }}.app/Contents/Resources $UNIVERSAL_DIR/Contents/
-          cp -R x86_64_app/${{ env.APP_NAME }}.app/Contents/Frameworks $UNIVERSAL_DIR/Contents/
-          cp x86_64_app/${{ env.APP_NAME }}.app/Contents/Info.plist $UNIVERSAL_DIR/Contents/
+          UNIVERSAL_DIR=target/universal/${{ env.APP_NAME }}.app
+          cp -R x86_64_app/Contents/Resources $UNIVERSAL_DIR/Contents/
+          cp -R x86_64_app/Contents/Frameworks $UNIVERSAL_DIR/Contents/
+          cp x86_64_app/Contents/Info.plist $UNIVERSAL_DIR/Contents/
 
       - name: Archive universal .app
         run: |
           cd target/universal
-          zip -r ${{ env.APP_NAME }}_universal.zip ${{ env.APP_NAME }}
+          zip -r ${{ env.APP_NAME }}_universal.zip ${{ env.APP_NAME }}.app
 
       - name: Upload universal artifact
         uses: actions/upload-artifact@v4
