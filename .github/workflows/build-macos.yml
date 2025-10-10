@@ -97,6 +97,12 @@ jobs:
           echo "aarch64 contents:"
           ls -R aarch64_app
 
+      - name: Rewrap artifacts into .app bundles
+        run: |
+            mv x86_64_app x86_64_app/${{ env.APP_NAME }}.app
+            mv aarch64_app aarch64_app/${{ env.APP_NAME }}.app
+
+
       - name: Create universal binary
         run: |
           UNIVERSAL_DIR=target/universal
