@@ -1,5 +1,5 @@
 [package]
-name = "crystalrcm-in-rust"
+name = "crystalrcm-rust-edition"
 version = "0.1.0"
 edition = "2021"
 description = "A fusée gelée RCM payload injector for macOS, rebuilt with Rust and egui."

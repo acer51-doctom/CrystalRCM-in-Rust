@@ -11,7 +11,7 @@ use std::{
     time::Duration,
 };
 
-use eframe::egui;
+use eframe::{egui, App};
 use egui::TextureHandle;
 use include_dir::{include_dir, Dir};
 use serde::Deserialize;
@@ -75,7 +75,6 @@ impl Default for AppProperties {
 fn main() -> Result<(), eframe::Error> {
     let props = load_properties().unwrap_or_default();
 
-    // Set up eframe options
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([560.0, 320.0])
@@ -84,26 +83,26 @@ fn main() -> Result<(), eframe::Error> {
         ..Default::default()
     };
 
-    // Tokio runtime for async updater
-    let rt = tokio::runtime::Runtime::new().unwrap();
+    let props_clone = props.clone();
 
     eframe::run_native(
         &props.app_name,
         options,
-        Box::new(|_cc| {
-            let mut app = CrystalRcmApp::new(props);
+        Box::new(move |_cc| {
+            let mut app = CrystalRcmApp::new(props_clone.clone());
 
-            // Spawn async update check at startup
+            // Spawn async update check using a dedicated runtime
             let repo = app.props.repository.clone();
             let version = app.props.version.clone();
             let tx_clone = app.update_tx.clone();
-            rt.spawn(async move {
-                if let Err(e) = updater::check_for_updates_async(&repo, &version, tx_clone).await {
-                    eprintln!("Update check failed: {}", e);
-                }
+            thread::spawn(move || {
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(async move {
+                    let _ = updater::check_for_updates_async(&repo, &version, tx_clone).await;
+                });
             });
 
-            Box::new(app)
+            Box::new(app) as Box<dyn App>
         }),
     )
 }
@@ -142,7 +141,7 @@ impl CrystalRcmApp {
                     _ => DeviceStatus::Disconnected,
                 };
                 if current_status != last_status {
-                    usb_tx.send(UsbMessage::StatusUpdate(current_status.clone())).unwrap();
+                    let _ = usb_tx.send(UsbMessage::StatusUpdate(current_status.clone()));
                     last_status = current_status;
                 }
                 thread::sleep(Duration::from_millis(500));
@@ -169,7 +168,6 @@ impl CrystalRcmApp {
         }
     }
 
-    // --- File dialogs ---
     fn open_payload_dialog(&mut self) {
         if let Some(path) =
             rfd::FileDialog::new().add_filter("Binary payload", &["bin"]).pick_file()
@@ -181,7 +179,6 @@ impl CrystalRcmApp {
         }
     }
 
-    // --- Push payload ---
     fn push_payload(&mut self) {
         if !Path::new(&self.selected_payload).exists() {
             self.log.push("Error: Selected payload file does not exist.".to_string());
@@ -204,20 +201,19 @@ impl CrystalRcmApp {
                 }
                 Err(e) => DeviceStatus::Error(e),
             };
-            tx.send(PushMessage::PushResult(result)).unwrap();
+            let _ = tx.send(PushMessage::PushResult(result));
         });
     }
 
-    // --- Handle incoming messages ---
     fn handle_usb_messages(&mut self) {
         if let Ok(UsbMessage::StatusUpdate(new_status)) = self.usb_rx.try_recv() {
             if self.device_status != DeviceStatus::Pushing {
                 if new_status != self.device_status {
                     match new_status {
                         DeviceStatus::Rcm => self.log.push("RCM device connected!".to_string()),
-                        DeviceStatus::Normal => {
-                            self.log.push("Normal Switch connected. Please reboot to RCM.".to_string())
-                        }
+                        DeviceStatus::Normal => self
+                            .log
+                            .push("Normal Switch connected. Please reboot to RCM.".to_string()),
                         DeviceStatus::Disconnected => self.log.push("Device disconnected.".to_string()),
                         _ => {}
                     }
@@ -241,8 +237,8 @@ impl CrystalRcmApp {
 
     fn handle_update_messages(&mut self) {
         while let Ok(msg) = self.update_rx.try_recv() {
-            if let UpdateMessage::Log(text) = msg {
-                self.log.push(text);
+            match msg {
+                UpdateMessage::Log(text) => self.log.push(text),
             }
         }
     }
@@ -276,7 +272,8 @@ impl CrystalRcmApp {
     }
 }
 
-impl eframe::App for CrystalRcmApp {
+// --- Implement eframe::App ---
+impl App for CrystalRcmApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.load_textures_once(ctx);
         self.handle_usb_messages();
@@ -285,9 +282,10 @@ impl eframe::App for CrystalRcmApp {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.horizontal(|ui| {
-                // Device image based on state
                 let texture = match self.device_status {
-                    DeviceStatus::Disconnected | DeviceStatus::Normal | DeviceStatus::Pushing => self.s_waiting.as_ref().unwrap(),
+                    DeviceStatus::Disconnected | DeviceStatus::Normal | DeviceStatus::Pushing => {
+                        self.s_waiting.as_ref().unwrap()
+                    }
                     DeviceStatus::Rcm => self.s_ready.as_ref().unwrap(),
                     DeviceStatus::Success => self.s_generic.as_ref().unwrap(),
                     DeviceStatus::Hekate => self.s_hkt.as_ref().unwrap(),
@@ -306,14 +304,17 @@ impl eframe::App for CrystalRcmApp {
                             )
                             .show_ui(ui, |ui| {
                                 for path in &self.recent_payloads {
-                                    if ui.selectable_value(
-                                        &mut self.selected_payload,
-                                        path.clone(),
-                                        Path::new(path)
-                                            .file_name()
-                                            .unwrap_or_default()
-                                            .to_string_lossy(),
-                                    ).clicked() {
+                                    if ui
+                                        .selectable_value(
+                                            &mut self.selected_payload,
+                                            path.clone(),
+                                            Path::new(path)
+                                                .file_name()
+                                                .unwrap_or_default()
+                                                .to_string_lossy(),
+                                        )
+                                        .clicked()
+                                    {
                                         self.log.push(format!("Selected payload: {}", path));
                                     }
                                 }
@@ -323,8 +324,11 @@ impl eframe::App for CrystalRcmApp {
                             self.open_payload_dialog();
                         }
 
-                        let push_button_enabled = self.device_status == DeviceStatus::Rcm;
-                        if ui.add_enabled(push_button_enabled, egui::Button::new("Push!")).clicked() {
+                        let push_enabled = self.device_status == DeviceStatus::Rcm;
+                        if ui
+                            .add_enabled(push_enabled, egui::Button::new("Push!"))
+                            .clicked()
+                        {
                             self.push_payload();
                         }
                     });
@@ -334,19 +338,20 @@ impl eframe::App for CrystalRcmApp {
                         let version = self.props.version.clone();
                         let tx_clone = self.update_tx.clone();
                         self.log.push("Checking for updates...".to_string());
-                        // Spawn async check
-                        tokio::spawn(async move {
-                            if let Err(e) = updater::check_for_updates_async(&repo, &version, tx_clone).await {
-                                eprintln!("Update check failed: {}", e);
-                            }
+                        thread::spawn(move || {
+                            let rt = tokio::runtime::Runtime::new().unwrap();
+                            rt.block_on(async move {
+                                let _ =
+                                    updater::check_for_updates_async(&repo, &version, tx_clone).await;
+                            });
                         });
                     }
 
                     ui.add_space(8.0);
                     egui::ScrollArea::vertical().stick_to_bottom(true).show(ui, |ui| {
-                        let text = self.log.join("\n");
+                        let mut text = self.log.join("\n");
                         ui.add(
-                            egui::TextEdit::multiline(&mut text.as_str())
+                            egui::TextEdit::multiline(&mut text)
                                 .desired_width(f32::INFINITY)
                                 .interactive(false),
                         );

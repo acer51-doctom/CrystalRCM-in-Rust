@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
+
+# Trap errors
+trap 'echo "Uh oh! An error occured. Please check output!" >&2' ERR
 
 # --- Config ---
-APP_NAME="crystalrcm-launcher"
+APP_NAME="CrystalRCM-Rust-Edition"
 TARGET_DIR="./target/release"
 BUNDLE_PATH="${TARGET_DIR}/${APP_NAME}.app"
 MACOS_DIR="${BUNDLE_PATH}/Contents/MacOS"
@@ -66,5 +69,8 @@ cat >> "$BUNDLE_PATH/Contents/Info.plist" <<EOL
 </dict>
 </plist>
 EOL
+
+# Sign the app
+codesign --force --sign - "$BUNDLE_PATH" || echo "⚠️ Codesign failed (may require permissions)"
 
 echo "✅ .app bundle created at ${BUNDLE_PATH}"

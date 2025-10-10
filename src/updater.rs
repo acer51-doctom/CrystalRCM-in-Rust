@@ -1,12 +1,11 @@
 use reqwest::Client;
 use serde::Deserialize;
 use std::error::Error;
-use tokio::task::spawn;
 use regex::Regex;
 
 use crate::UpdateMessage;
 
-const REPO: &str = "acer51-doctom/CrystalRCM-in-Rust";
+const REPO: &str = "acer51-doctom/CrystalRCM-Rust-Edition";
 const PROPERTIES_PATH: &str = "assets/properties.json";
 
 #[derive(Debug, Deserialize)]
@@ -50,23 +49,29 @@ pub async fn check_for_updates_async(
                 current_version, latest_ver
             )));
         } else {
-            let _ = tx.send(UpdateMessage::Log("✅ You are running the latest version.".to_string()));
+            let _ = tx.send(UpdateMessage::Log(
+                "✅ You are running the latest version.".to_string(),
+            ));
         }
     } else {
-        let _ = tx.send(UpdateMessage::Log("⚠️ No valid release tags found.".to_string()));
+        let _ = tx.send(UpdateMessage::Log(
+            "⚠️ No valid release tags found.".to_string(),
+        ));
     }
 
     Ok(())
 }
 
-// --- Sync fallback ---
+// --- Sync fallback for CLI/testing ---
 pub fn check_for_updates() -> Result<(), Box<dyn Error>> {
     let content = std::fs::read_to_string(PROPERTIES_PATH)?;
     let props: Properties = serde_json::from_str(&content)?;
     let current_version = props.version;
 
+    // Use a dummy mpsc channel to satisfy the async function
+    let (tx, _rx) = std::sync::mpsc::channel();
     let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(check_for_updates_async(REPO, &current_version, std::sync::mpsc::channel().0))?;
+    rt.block_on(check_for_updates_async(REPO, &current_version, tx))?;
     Ok(())
 }
 
