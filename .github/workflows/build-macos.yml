@@ -13,11 +13,11 @@ env:
 
 jobs:
   build_x86_64:
-    runs-on: macos-latest
+    runs-on: macos-11
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Rust
+      - name: Set up Rust (x86_64)
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
@@ -48,7 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Rust
+      - name: Set up Rust (aarch64)
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
@@ -102,10 +102,9 @@ jobs:
           UNIVERSAL_DIR=target/universal
           mkdir -p $UNIVERSAL_DIR/Contents/MacOS
           lipo -create \
-            x86_64_app/Contents/MacOS/${{ env.APP_NAME }} \
-            aarch64_app/Contents/MacOS/${{ env.APP_NAME }} \
+            x86_64_app/${{ env.APP_NAME }}.app/Contents/MacOS/${{ env.APP_NAME }} \
+            aarch64_app/${{ env.APP_NAME }}.app/Contents/MacOS/${{ env.APP_NAME }} \
             -output $UNIVERSAL_DIR/Contents/MacOS/${{ env.APP_NAME }}
-
 
       - name: Copy resources and frameworks
         run: |
