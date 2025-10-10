@@ -47,3 +47,7 @@ regex = "1.11.3"
 [build-dependencies]
 # macOS resource compiler for icons and .app bundling
 embed-resource = "2.4"
+
+[[bin]]
+name = "crystalrcm-rust-edition"
+path = "src/main.rs"

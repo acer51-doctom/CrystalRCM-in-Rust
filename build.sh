@@ -5,8 +5,8 @@ set -euo pipefail
 trap 'echo "Uh oh! An error occured. Please check output!" >&2' ERR
 
 # --- Config ---
-APP_NAME="crystalrcm-rust-edition"
-TARGET_DIR="./target/release"
+APP_NAME="crystalrcm-rust-edition" # VERY CASE SENSITIVE.
+TARGET_DIR="/target/release"
 BUNDLE_PATH="${TARGET_DIR}/${APP_NAME}.app"
 MACOS_DIR="${BUNDLE_PATH}/Contents/MacOS"
 RESOURCES_DIR="${BUNDLE_PATH}/Contents/Resources"
