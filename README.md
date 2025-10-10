@@ -25,4 +25,5 @@ To build, there is only one command to run:
 
 It may take a while since it has to build all the libraries, ect...
 
-The build 
+The building file will compile for **your** computer architecture. If you wanna compile "universally" (ARM and Intel), please <br>
+fork the repo and use GitHub Actions.

@@ -29,11 +29,19 @@ jobs:
       - name: Build app bundle (x86_64)
         run: bash ./build.sh
 
+      - name: Verify .app exists (x86_64)
+        run: |
+          if [ ! -d "target/release/${{ env.APP_NAME }}.app" ]; then
+            echo "❌ .app bundle not found at target/release/${{ env.APP_NAME }}.app"
+            ls -R target/release
+            exit 1
+          fi
+
       - name: Upload x86_64 artifact
         uses: actions/upload-artifact@v4
         with:
           name: x86_64_app
-          path: target/release/${{ env.APP_NAME }}.app
+          path: "target/release/${{ env.APP_NAME }}.app"
 
   build_aarch64:
     runs-on: macos-latest
@@ -52,11 +60,19 @@ jobs:
       - name: Build app bundle (aarch64)
         run: bash ./build.sh
 
+      - name: Verify .app exists (aarch64)
+        run: |
+          if [ ! -d "target/release/${{ env.APP_NAME }}.app" ]; then
+            echo "❌ .app bundle not found at target/release/${{ env.APP_NAME }}.app"
+            ls -R target/release
+            exit 1
+          fi
+
       - name: Upload aarch64 artifact
         uses: actions/upload-artifact@v4
         with:
           name: aarch64_app
-          path: target/release/${{ env.APP_NAME }}.app
+          path: "target/release/${{ env.APP_NAME }}.app"
 
   universal_bundle:
     runs-on: macos-latest
@@ -73,6 +89,13 @@ jobs:
         with:
           name: aarch64_app
           path: aarch64_app
+
+      - name: Debug downloaded artifacts
+        run: |
+          echo "x86_64 contents:"
+          ls -R x86_64_app
+          echo "aarch64 contents:"
+          ls -R aarch64_app
 
       - name: Create universal binary
         run: |
