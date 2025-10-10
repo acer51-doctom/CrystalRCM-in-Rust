@@ -12,7 +12,7 @@ I would say **macOS Ventura 13** would be the minimum.
 If you get it to work on earlier versions, great for you. I don't provide support.
 
 I also highly recommend having libusb installed via brew. If you don't know how to that, just open your Terminal (Spotlight > Terminal) <br>
-And paste this command: ``/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; brew install gcc libusb``
+And paste this command: `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; brew install gcc libusb`
 
 ## Building
 
