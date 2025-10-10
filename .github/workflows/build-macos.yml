@@ -97,20 +97,15 @@ jobs:
           echo "aarch64 contents:"
           ls -R aarch64_app
 
-      - name: Rewrap artifacts into .app bundles
-        run: |
-            mv x86_64_app x86_64_app/${{ env.APP_NAME }}.app
-            mv aarch64_app aarch64_app/${{ env.APP_NAME }}.app
-
-
       - name: Create universal binary
         run: |
           UNIVERSAL_DIR=target/universal
           mkdir -p $UNIVERSAL_DIR/Contents/MacOS
           lipo -create \
-            x86_64_app/${{ env.APP_NAME }}.app/Contents/MacOS/${{ env.APP_NAME }} \
-            aarch64_app/${{ env.APP_NAME }}.app/Contents/MacOS/${{ env.APP_NAME }} \
-            -output $UNIVERSAL_DIR/Contents/MacOS/${{ env.APP_NAME }}
+               x86_64_app/Contents/MacOS/${{ env.APP_NAME }} \
+               aarch64_app/Contents/MacOS/${{ env.APP_NAME }} \
+               -output $UNIVERSAL_DIR/Contents/MacOS/${{ env.APP_NAME }}
+
 
       - name: Copy resources and frameworks
         run: |
