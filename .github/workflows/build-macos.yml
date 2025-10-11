@@ -106,6 +106,7 @@ jobs:
                x86_64_app/Contents/MacOS/${{ env.APP_NAME }} \
                aarch64_app/Contents/MacOS/${{ env.APP_NAME }} \
                -output $UNIVERSAL_DIR/Contents/MacOS/${{ env.APP_NAME }}
+          chmod +x $UNIVERSAL_DIR/Contents/MacOS/${{ env.APP_NAME }}
 
       - name: Copy resources and frameworks
         run: |
@@ -113,6 +114,16 @@ jobs:
           cp -R x86_64_app/Contents/Resources $UNIVERSAL_DIR/Contents/
           cp -R x86_64_app/Contents/Frameworks $UNIVERSAL_DIR/Contents/
           cp x86_64_app/Contents/Info.plist $UNIVERSAL_DIR/Contents/
+
+      - name: Codesign universal app (ad-hoc)
+        run: |
+          UNIVERSAL_DIR=target/universal/${{ env.APP_NAME }}.app
+          codesign --force --deep --sign - $UNIVERSAL_DIR
+
+      - name: Verify universal binary
+        run: |
+          file target/universal/${{ env.APP_NAME }}.app/Contents/MacOS/${{ env.APP_NAME }}
+          lipo -info target/universal/${{ env.APP_NAME }}.app/Contents/MacOS/${{ env.APP_NAME }}
 
       - name: Archive universal .app
         run: |
